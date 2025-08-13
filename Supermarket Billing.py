@@ -1,6 +1,12 @@
 from pathlib import Path
 from tkinter import Tk, Canvas, Entry, Label, Button, PhotoImage, Toplevel, messagebox
 from tkinter import *
+from pymongo import MongoClient
+from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 OUTPUT_PATH = Path(__file__).parent
 ASSETS_PATH = OUTPUT_PATH / Path("./assets")
@@ -15,7 +21,7 @@ window.title("Bill Generator")
 
 canvas = Canvas(window,bg = "#000000",height = 350,width = 800,bd = 0,highlightthickness = 0,relief = "ridge")
 canvas.place(x = 0, y = 0)
-canvas.create_text(283.0,52.0,anchor="nw",text="Supermarket Billing",fill="#FFFFFF",font=("SF Pro Text", 24 * -1))
+canvas.create_text(283.0,52.0,anchor="nw",text="BILL GENERATOR",fill="#FFFFFF",font=("SF Pro Text", 24 * -1))
 canvas.create_text(260.0,5.0,anchor="nw",text="General Store",fill="#FFFFFF",font=("SF Pro Text", 40 * -1))
 
 entry_image_1 = PhotoImage(file=relative_to_assets("entry_1.png"))
@@ -41,77 +47,33 @@ entry_4.place(x=399.5,y=152.0,width=167.0,height=34.0)
 canvas.create_text(33.0,157.0,anchor="nw",text="Item ID:",fill="#FFFFFF",font=("SF Pro Text", 22 * -1))
 canvas.create_text(302.0,157.0,anchor="nw",text="Quantity:",fill="#FFFFFF",font=("SF Pro Text", 22 * -1))
 
-items = []
+bill_Item = []
 global total
 total = 0
 
-def chips_price():
-    entry_2 = Label(bd=0,bg="#595959",text="Rs. 15 each",fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=116.0,y=219.0,width=167.0,height=34.0)
+class Item:
+    def __init__(self, name, id, price, stock, added=False):
+        self.name = name
+        self.id = id
+        self.price = price
+        self.stock = stock
+        self.added = added
 
-def biscuit_price():
-    entry_2 = Label(bd=0,bg="#595959",text="Rs. 25 each",fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=116.0,y=219.0,width=167.0,height=34.0)
+client = MongoClient(os.getenv("DB_URI"))
+db = client["store_db"]
 
-def coke_price():
-    entry_2 = Label(bd=0,bg="#595959",text="Rs. 20 each",fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=116.0,y=219.0,width=167.0,height=34.0)
+transactions_col = db["transactions"]
+inventory_col = db["inventory"]
 
-def disp_total():
-    entry_3 = Label(bd=0,bg="#595959",text="Rs. "+str(total), fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=400.0,y=219.0,width=167.0,height=34.0)
-   
-def add():
-    try:
-        id = int(entry_1.get())
-        quantity = int(entry_4.get())
-        if id == 1:
-            for x in range(0, quantity):
-                items.append("Chips")
-                global total
-                total += 15
-                chips_price()
-                disp_total()
-        elif id == 2:
-            for x in range(0, quantity):
-                items.append("Biscuits")
-                total += 25
-                biscuit_price()
-                disp_total()
-        elif id == 3:
-            for x in range(0, quantity):
-                items.append("Coca-Cola")
-                total += 20
-                coke_price()
-                disp_total()
-        else:
-            messagebox.showerror("Error", "Please enter a valid ID from the Menu")
-    except ValueError:
-        messagebox.showerror("Error", "Please enter a valid ID from the Menu")
+inventory_data = list(inventory_col.find())
 
-def remove():
-    global total
-    if len(items) > 0:
-        x = items.pop()
-        if x.lower() == "chips":
-            total = total - 15
-            disp_total()
-        elif x.lower() == "biscuits":
-            total = total - 25
-            disp_total()
-        elif x.lower() == "coca-cola":
-            total = total - 20
-            disp_total()
-        try:
-            if items[-1].lower() == "chips":
-                chips_price()
-            elif items[-1].lower() == "biscuits":
-                biscuit_price()
-            elif items[-1].lower() == "coca-cola":
-                coke_price()
-        except IndexError:
-            pass
+inventory = [Item(doc["name"], doc["id"], doc["price"], doc["stock"]) for doc in inventory_data]
+no_of_Item = len(inventory)
 
 def clear():
     global total
     total = 0
-    items.clear()
+    bill_Item.clear()
     entry_3 = Label(bd=0,bg="#595959",text="", fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0)
     entry_3.place(x=400.0,y=219.0,width=167.0,height=34.0)
     entry_2 = Label(bd=0,bg="#595959",text="",fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0)
@@ -119,46 +81,98 @@ def clear():
     entry_1.delete(0, END)
     entry_4.delete(0, END)
 
+def disp_total():
+    entry_3 = Label(bd=0,bg="#595959",text="Rs. "+str(total), fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=400.0,y=219.0,width=167.0,height=34.0)
+
+def id_err():
+    entry_1.delete(0, END)
+    messagebox.showerror("Error", "Please enter a valid ID from the Menu")
+
+def inv_inp():
+    entry_1.delete(0, END)
+    entry_4.delete(0, END)
+    messagebox.showerror("Error", "Invalid Input!")
+    
+def add():
+    global total
+    try:
+        x = int(entry_1.get())
+        quantity = int(entry_4.get())
+        if x <= no_of_Item:
+            for thing in inventory:
+                if int(thing.id) == x:
+                    for x in range(0, quantity):
+                        bill_Item.append(str(thing.name))
+                        inventory_col.update_one({"id": thing.id}, {"$inc": {"stock": -1}})
+                        thing.stock -= 1
+                        total = total + int(thing.price)
+                        disp_total()
+                    entry_2 = Label(bd=0,bg="#595959",text="Rs. " + str(thing.price) + " each",fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=116.0,y=219.0,width=167.0,height=34.0)
+        else:
+            id_err()
+    except ValueError:
+        inv_inp()   
+
+def remove():
+    global total
+    if len(bill_Item) > 0:
+        x = bill_Item.pop()
+        for thing in inventory:
+            if str(x) == str(thing.name):
+                total = total - int(thing.price)
+                disp_total()
+        try:
+            for bong in inventory:
+                if str(bill_Item[-1]) == bong.name:
+                    entry_2 = Label(bd=0,bg="#595959",text="Rs. " + str(bong.price) + " each",fg="#FFFFFF",font=("SF Pro Text", 22 * -1),highlightthickness=0).place(x=116.0,y=219.0,width=167.0,height=34.0)
+        except IndexError:
+            pass
+
 def generate():
     if total != 0:
         bill = Toplevel(window)
         bill.title("Bill")
         bill.resizable(0, 0)
         bill.configure(bg="#000000")
-        chip_added = False
-        biscuit_added = False
-        coke_added = False
         Label(bill, text="TRANSACTION RECEIPT",font=("SF Pro Text", 24 * -1),bg="#000000",fg="#FFFFFF").pack()
         Label(bill, text="--------------------------------",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-        for item in items:
-            if item.lower() == "chips":
-                if chip_added == False:
-                    Label(bill, text=str(item) + "  -  " + str(items.count(item)) + " units", font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-                    chip_added = True
-            elif item.lower() == "biscuits":
-                if biscuit_added == False:
-                    Label(bill, text=str(item) + "  -  " + str(items.count(item)) + " units", font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-                    biscuit_added = True
-            elif item.lower() == "coca-cola":
-                if coke_added == False:
-                    Label(bill, text=str(item) + "  -  " + str(items.count(item)) + " units", font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-                    coke_added = True
+        for item in bill_Item:
+            for thing in inventory:
+                if str(item) == thing.name:
+                    if thing.added == False:
+                        Label(bill, text=str(thing.name)+ "  -   " + str(bill_Item.count(thing.name)) + " units",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
+                        thing.added = True
         Label(bill, text="--------------------------------",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
         Label(bill, text="Your Total is: Rs. " + str(total) + ".00",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
+        transaction_doc = {
+            "items": [],
+            "total": total,
+            "timestamp": datetime.now()
+        }
+        for thing in inventory:
+            count = bill_Item.count(thing.name)
+            if count > 0:
+                transaction_doc["items"].append({
+                    "name": thing.name,
+                    "quantity": count,
+                    "unit_price": thing.price,
+                    "subtotal": count * thing.price
+                })
+        transactions_col.insert_one(transaction_doc)
+        clear()
     else:
         pass
 
 def menu():
     menu = Toplevel(window)
-    menu.title("Menu")
+    menu.title("Inventory")
     menu.resizable(0, 0)
     menu.configure(bg="#000000")
-    Label(menu, text="Menu",font=("SF Pro Text", 24 * -1),bg="#000000",fg="#FFFFFF").pack()
-    Label(menu, text="--------------------------------",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-    Label(menu, text="001 - Chips - Rs. 15 each",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-    Label(menu, text="002 - Biscuits - Rs. 25 each",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-    Label(menu, text="003 - Coca-Cola - Rs. 20 each",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
-    Label(menu, text="--------------------------------",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
+    Label(menu, text="ITEM LIST",font=("SF Pro Text", 28 * -1),bg="#000000",fg="#FFFFFF").pack()
+    Label(menu, text="-----------------------------------------------",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
+    for thing in inventory:
+        Label(menu, text=str(thing.id) + "   -   " + str(thing.name) + "   -   Rs. " + str(thing.price) + " each",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
+    Label(menu, text="-----------------------------------------------",font=("SF Pro Text", 22 * -1),bg="#000000",fg="#FFFFFF").pack()
 
 button_image_1 = PhotoImage(file=relative_to_assets("button_1.png"))
 button_1 = Button(image=button_image_1,borderwidth=0,highlightthickness=0,command=menu,relief="flat").place(x=47.0,y=60.0,width=100.0,height=30.0)
